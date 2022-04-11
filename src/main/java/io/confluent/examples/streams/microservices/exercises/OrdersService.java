@@ -5,6 +5,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import io.confluent.examples.streams.microservices.Service;
 import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
 import org.apache.commons.cli.*;
 import org.apache.kafka.clients.producer.Callback;
@@ -35,6 +36,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import javax.inject.Inject;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
@@ -120,6 +122,7 @@ public class OrdersService implements Service {
   // different users and (b) periodically purge old entries from this map.
   private final Map<String, FilteredResponse<String, Order>> outstandingRequests = new ConcurrentHashMap<>();
 
+  @Inject
   public OrdersService(final String host, final int port) {
     this.host = host;
     this.port = port;
@@ -313,13 +316,9 @@ public class OrdersService implements Service {
     setTimeout(timeout, response);
 
     final Order bean = fromBean(order);
+    final String orderId = bean.getId();
 
-    // TODO 1.1: create a new `ProducerRecord` with a key specified by `bean.getId()` and value of the bean, to the orders topic whose name is specified by `ORDERS.name()`
-    // ...
-
-    // TODO 1.2: produce the newly created record using the existing `producer` and pass use the `OrdersService#callback` function to send the `response` and the record key
-    // ...
-
+    producer.send(new ProducerRecord<>(ORDERS.name(), orderId, bean), callback(response, orderId));
   }
 
   @SuppressWarnings("unchecked")
