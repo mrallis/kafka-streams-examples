@@ -1,4 +1,4 @@
-package io.confluent.examples.streams.microservices;
+package io.confluent.examples.streams.microservices.exercises;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.inject.Inject;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
@@ -121,7 +120,6 @@ public class OrdersService implements Service {
   // different users and (b) periodically purge old entries from this map.
   private final Map<String, FilteredResponse<String, Order>> outstandingRequests = new ConcurrentHashMap<>();
 
-  @Inject
   public OrdersService(final String host, final int port) {
     this.host = host;
     this.port = port;
@@ -315,8 +313,13 @@ public class OrdersService implements Service {
     setTimeout(timeout, response);
 
     final Order bean = fromBean(order);
-    producer.send(new ProducerRecord<>(ORDERS.name(), bean.getId(), bean),
-        callback(response, bean.getId()));
+
+    // TODO 1.1: create a new `ProducerRecord` with a key specified by `bean.getId()` and value of the bean, to the orders topic whose name is specified by `ORDERS.name()`
+    // ...
+
+    // TODO 1.2: produce the newly created record using the existing `producer` and pass use the `OrdersService#callback` function to send the `response` and the record key
+    // ...
+
   }
 
   @SuppressWarnings("unchecked")
@@ -327,7 +330,6 @@ public class OrdersService implements Service {
     jettyServer = startJetty(port, this);
     port = jettyServer.getURI().getPort(); // update port, in case port was zero
     producer = startProducer(bootstrapServers, ORDERS, defaultConfig);
-    defaultConfig.put(StreamsConfig.STATE_DIR_CONFIG, stateDir);
     streams = startKStreams(bootstrapServers, defaultConfig);
     log.info("Started Service " + getClass().getSimpleName());
     log.info("Order Service listening at:" + jettyServer.getURI().toString());
@@ -360,10 +362,9 @@ public class OrdersService implements Service {
   }
 
   private Properties config(final String bootstrapServers, final Properties defaultConfig) {
-    final String stateDir = defaultConfig.getProperty(StreamsConfig.STATE_DIR_CONFIG);
     final Properties props = baseStreamsConfig(
             bootstrapServers,
-            stateDir != null ? stateDir : "/tmp/kafka-streams",
+            "/tmp/kafka-streams",
             SERVICE_APP_ID,
             defaultConfig);
     props.put(StreamsConfig.APPLICATION_SERVER_CONFIG, host + ":" + port);
