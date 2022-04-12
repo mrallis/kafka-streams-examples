@@ -106,7 +106,7 @@ public class EmailService implements Service {
             .join(payments, EmailTuple::new, JoinWindows.of(Duration.ofMinutes(1)), serdes);
 
     ordersPaymentsStream.join(customers,
-            (k, emailTuple) -> emailTuple.order.getCustomerId(),
+            (orderId, emailTuple) -> emailTuple.order.getCustomerId(),
             (emailTuple, customer) -> {
                 emailTuple.setCustomer(customer);
                 return emailTuple;

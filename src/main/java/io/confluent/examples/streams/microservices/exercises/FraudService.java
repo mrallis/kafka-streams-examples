@@ -8,6 +8,7 @@ import io.confluent.examples.streams.microservices.Service;
 import io.confluent.examples.streams.microservices.domain.Schemas;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -20,11 +21,13 @@ import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.KafkaStreams.State;
 
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.kstream.Branched;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Grouped;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Materialized;
+import org.apache.kafka.streams.kstream.Named;
 import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.SessionWindows;
 import org.apache.kafka.streams.kstream.Windowed;
@@ -90,9 +93,7 @@ public class FraudService implements Service {
     final StreamsBuilder builder = new StreamsBuilder();
     final KStream<String, Order> orders = builder
         .stream(ORDERS.name(), Consumed.with(ORDERS.keySerde(), ORDERS.valueSerde()))
-
-        // TODO 4.1: filter this stream to include only orders in "CREATED" state, i.e., it should satisfy the predicate `OrderState.CREATED.equals(order.getState())`
-        // ...
+            .filter((orderId, order) -> OrderState.CREATED.equals(order.getState()));
 
     //Create an aggregate of the total value by customer and hold it with the order. We use session windows to
     // detect periods of activity.
@@ -113,18 +114,17 @@ public class FraudService implements Service {
         .selectKey((id, orderValue) -> orderValue.getOrder().getId());
 
     //Now branch the stream into two, for pass and fail, based on whether the windowed total is over Fraud Limit
+    final Map<String, KStream<String, OrderValue>> forks = ordersWithTotals.split(Named.as("limit-"))
+            .branch((orderId, orderValue) -> orderValue.getValue() >= FRAUD_LIMIT, Branched.as("above"))
+            .branch((orderId, orderValue) -> orderValue.getValue() < FRAUD_LIMIT, Branched.as("below"))
+            .noDefaultBranch();
 
-    // TODO 4.2: create a `KStream<String, OrderValue>` array from the `ordersWithTotals` stream by branching the records based on `OrderValue#getValue`
-    // 1. First branched stream: FRAUD_CHECK will fail for predicate where order value >= FRAUD_LIMIT
-    // 2. Second branched stream: FRAUD_CHECK will pass for predicate where order value < FRAUD_LIMIT
-    // ...
-
-    forks[0].mapValues(
+    forks.get("limit-above").mapValues(
         orderValue -> new OrderValidation(orderValue.getOrder().getId(), FRAUD_CHECK, FAIL))
         .to(ORDER_VALIDATIONS.name(), Produced
             .with(ORDER_VALIDATIONS.keySerde(), ORDER_VALIDATIONS.valueSerde()));
 
-    forks[1].mapValues(
+    forks.get("limit-below").mapValues(
         orderValue -> new OrderValidation(orderValue.getOrder().getId(), FRAUD_CHECK, PASS))
         .to(ORDER_VALIDATIONS.name(), Produced
             .with(ORDER_VALIDATIONS.keySerde(), ORDER_VALIDATIONS.valueSerde()));
