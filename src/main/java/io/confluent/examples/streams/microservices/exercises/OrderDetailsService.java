@@ -17,6 +17,7 @@ import io.confluent.examples.streams.utils.MonitoringInterceptorUtils;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -80,8 +81,7 @@ public class OrderDetailsService implements Service {
     try {
       final Map<TopicPartition, OffsetAndMetadata> consumedOffsets = new HashMap<>();
       
-      // TODO 2.1: subscribe the local `consumer` to a `Collections#singletonList` with the orders topic whose name is specified by `Topics.ORDERS.name()`
-      // ...
+      consumer.subscribe(Collections.singletonList(Topics.ORDERS.name()));
 
       if (eosEnabled) {
         producer.initTransactions();
@@ -98,15 +98,8 @@ public class OrderDetailsService implements Service {
             if (OrderState.CREATED.equals(order.getState())) {
               //Validate the order then send the result (but note we are in a transaction so
               //nothing will be "seen" downstream until we commit the transaction below)
-
-              // TODO 2.2: validate the order using `OrderDetailsService#isValid` and save the validation result to type `OrderValidationResult`
-              // ...
-
-              // TODO 2.3: create a new record using `OrderDetailsService#result()` that takes the order and validation result
-              // ...
-
-              // TODO 2.4: produce the newly created record using the existing `producer`
-              // ...
+              ProducerRecord<String, OrderValidation> orderValidationRecord = result(order, isValid(order) ? PASS : FAIL);
+              producer.send(orderValidationRecord);
 
               if (eosEnabled) {
                 recordOffset(consumedOffsets, record);

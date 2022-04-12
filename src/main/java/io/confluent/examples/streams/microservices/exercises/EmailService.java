@@ -15,7 +15,9 @@ import io.confluent.examples.streams.microservices.Service;
 import io.confluent.examples.streams.microservices.domain.Schemas;
 import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
 import org.apache.commons.cli.*;
+import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.Consumed;
 
@@ -91,8 +93,7 @@ public class EmailService implements Service {
     final KStream<String, Payment> payments_original = builder.stream(PAYMENTS.name(),
             Consumed.with(PAYMENTS.keySerde(), PAYMENTS.valueSerde()));
 
-    // TODO 3.1: create a new `KStream` called `payments` from `payments_original`, using `KStream#selectKey` to rekey on order id specified by `payment.getOrderId()` instead of payment id
-    // ...
+    final KStream<String, Payment> payments = payments_original.selectKey((k, payment) -> payment.getOrderId());
 
     final GlobalKTable<Long, Customer> customers = builder.globalTable(CUSTOMERS.name(),
         Consumed.with(CUSTOMERS.keySerde(), CUSTOMERS.valueSerde()));
@@ -101,25 +102,24 @@ public class EmailService implements Service {
         .with(ORDERS.keySerde(), ORDERS.valueSerde(), PAYMENTS.valueSerde());
 
     //Join the two streams and the table then send an email for each
-    orders.join(payments, EmailTuple::new,
-        //Join Orders and Payments streams
-        JoinWindows.of(Duration.ofMinutes(1)), serdes)
+    KStream<String, EmailTuple> ordersPaymentsStream = orders
+            .join(payments, EmailTuple::new, JoinWindows.of(Duration.ofMinutes(1)), serdes);
 
-            // TODO 3.2: do a stream-table join with the customers table, which requires three arguments:
-            // 1) the GlobalKTable for the stream-table join
-            // 2) customer Id, specified by `order.getCustomerId()`, using a KeyValueMapper that gets the customer id from the tuple in the record's value
-            // 3) method that computes a value for the result record, in this case `EmailTuple::setCustomer`
-            // ...
-
-        //Now for each tuple send an email.
-        .peek((key, emailTuple)
+    ordersPaymentsStream.join(customers,
+            (k, emailTuple) -> emailTuple.order.getCustomerId(),
+            (emailTuple, customer) -> {
+                emailTuple.setCustomer(customer);
+                return emailTuple;
+            })
+            .peek((key, emailTuple)
             -> emailer.sendEmail(emailTuple)
         );
 
     //Send the order to a topic whose name is the value of customer level
-    orders.join(customers, (orderId, order) -> order.getCustomerId(), (order, customer) -> new OrderEnriched (order.getId(), order.getCustomerId(), customer.getLevel()))
-      // TODO 3.3: route an enriched order record to a topic that is dynamically determined from the value of the customerLevel field of the corresponding customer
-      // ...
+    orders.join(customers,
+            (orderId, order) -> order.getCustomerId(),
+            (order, customer) -> new OrderEnriched (order.getId(), order.getCustomerId(), customer.getLevel()))
+            .to((k, orderEnriched, recordContext) -> orderEnriched.getCustomerLevel(), Produced.with(ORDERS_ENRICHED.keySerde(), ORDERS_ENRICHED.valueSerde()));
 
     return new KafkaStreams(builder.build(),
             baseStreamsConfig(bootstrapServers, stateDir, SERVICE_APP_ID, defaultConfig));
