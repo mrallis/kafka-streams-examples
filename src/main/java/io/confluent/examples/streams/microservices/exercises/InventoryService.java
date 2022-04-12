@@ -106,14 +106,14 @@ public class InventoryService implements Service {
 
     //Create a store to reserve inventory whilst the order is processed.
     //This will be prepopulated from Kafka before the service starts processing
-    final StoreBuilder<KeyValueStore<Product, Long>> reservedStock = Stores
+    final StoreBuilder<KeyValueStore<Product, Long>> reservedStock =
+            Stores.keyValueStoreBuilder(
+                    Stores.persistentKeyValueStore(RESERVED_STOCK_STORE_NAME),
+                            Topics.WAREHOUSE_INVENTORY.keySerde(),
+                            Serdes.Long()
+                    )
+                    .withLoggingEnabled(new HashMap<>());
 
-      // TODO 6.1: create a state store called `RESERVED_STOCK_STORE_NAME`, using `Stores#keyValueStoreBuilder` and `Stores#persistentKeyValueStore`
-      // 1. the key Serde is derived from the topic specified by `WAREHOUSE_INVENTORY`
-      // 2. the value Serde is derived from `Serdes.Long()` because it represents a count
-      // ...
-
-      .withLoggingEnabled(new HashMap<>());
     builder.addStateStore(reservedStock);
 
     //First change orders stream to be keyed by Product (so we can join with warehouse inventory)
@@ -121,7 +121,7 @@ public class InventoryService implements Service {
       //Limit to newly created orders
       .filter((id, order) -> OrderState.CREATED.equals(order.getState()))
       //Join Orders to Inventory so we can compare each order to its corresponding stock value
-      .join(warehouseInventory, KeyValue::new, Joined.with(Topics.WAREHOUSE_INVENTORY.keySerde(),
+      .join(warehouseInventory, (order, warehouseInventorycount) -> new KeyValue<>(order, warehouseInventorycount), Joined.with(Topics.WAREHOUSE_INVENTORY.keySerde(),
         Topics.ORDERS.valueSerde(), Serdes.Integer()))
       //Validate the order based on how much stock we have both in the warehouse and locally 'reserved' stock
       .transform(InventoryValidator::new, RESERVED_STOCK_STORE_NAME)
@@ -162,10 +162,7 @@ public class InventoryService implements Service {
       //If there is enough stock available (considering both warehouse inventory and reserved stock) validate the order
       if (warehouseStockCount - reserved - order.getQuantity() >= 0) {
         //reserve the stock by adding it to the 'reserved' store
-
-        // TODO 6.2: update the reserved stock in the KeyValueStore called `reservedStocksStore`
-        // 1. the key is the product in the order, using `OrderBean#getProduct`
-        // 2. the value is the sum of the current reserved stock and the quantity in the order, using `OrderBean#getQuantity`
+        reservedStocksStore.put(order.getProduct(), order.getQuantity() + reserved);
 
         //validate the order
         validated = new OrderValidation(order.getId(), INVENTORY_CHECK, PASS);
